@@ -2,88 +2,149 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NetCheckNova</title>
+  <title>NetCheckNova UI</title>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; max-width: 400px; margin: auto; }
-    label, input, button { display: block; width: 100%; margin-bottom: 10px; font-size: 1.1em; }
-    button { padding: 10px; cursor: pointer; }
-    #result {
-      font-weight: bold;
-      font-size: 1.3em;
-      margin-top: 20px;
+    body {
+      font-family: Arial, sans-serif;
+      background: #f9f9f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
     }
-    #result.available { color: green; }
-    #result.not-available { color: red; }
+    .container {
+      text-align: center;
+      background: white;
+      padding: 2em;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      max-width: 400px;
+      width: 100%;
+    }
+    .spinner {
+      display: none;
+      margin: 1em 0;
+    }
+    .result {
+      margin-top: 1em;
+      font-weight: bold;
+    }
+    .available {
+      color: green;
+    }
+    .not-available {
+      color: red;
+    }
+    input[type="text"] {
+      width: 80%;
+      padding: 0.5em;
+      font-size: 1em;
+    }
+    button {
+      padding: 0.5em 1em;
+      font-size: 1em;
+      margin-top: 1em;
+    }
+
+    .spinner {
+      display: none;
+      margin: 1em auto;
+      border: 4px solid #f3f3f3; /* светлая часть */
+      border-top: 4px solid #3498db; /* синяя часть */
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
   </style>
 </head>
 <body>
-  <h1>NetCheckNova</h1>
-  <form id="checkForm">
-    <label for="address">Введите адрес и порт (например, 8.8.8.8:53, google.com:443, https://google.com):</label>
-    <input type="text" id="address" name="address" placeholder="host[:port]" required />
-    <button type="submit">Check</button>
-  </form>
-
-  <div id="result"></div>
+  <div class="container">
+    <h1>NetCheckNova</h1>
+    <form id="check-form">
+      <input type="text" id="address" placeholder="например: 8.8.8.8:53 или https://site:443" required />
+      <br>
+      <button type="submit" id="check-button">Проверить</button>
+    </form>
+    <div class="spinner" id="spinner"></div>
+    <div id="result" class="result"></div>
+  </div>
 
   <script>
-    const form = document.getElementById('checkForm');
+    const form = document.getElementById('check-form');
+    const spinner = document.getElementById('spinner');
     const resultDiv = document.getElementById('result');
-
-    // Функция парсинга адреса и порта
-    function parseAddress(input) {
-      try {
-        // Если input начинается с http или https, парсим как URL
-        if (/^https?:\/\//i.test(input)) {
-          const url = new URL(input);
-          const host = url.hostname;
-          const port = url.port || (url.protocol === 'https:' ? '443' : '80');
-          return { host, port };
-        }
-        // Иначе разбиваем по ':'
-        const parts = input.split(':');
-        if (parts.length === 2) {
-          return { host: parts[0], port: parts[1] };
-        }
-        // Если порт не указан, вернём хост и пустой порт
-        return { host: input, port: '' };
-      } catch {
-        return null;
-      }
-    }
+    const button = document.getElementById('check-button');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      resultDiv.textContent = '';
-      resultDiv.className = '';
+      const addressInput = document.getElementById('address').value.trim();
+      if (!addressInput) return;
 
-      const input = form.address.value.trim();
-      const parsed = parseAddress(input);
+      let host = '';
+      let port = '';
 
-      if (!parsed || !parsed.host || !parsed.port) {
-        resultDiv.textContent = 'Некорректный адрес или порт';
-        resultDiv.className = 'not-available';
+      // Попробуем разобрать через URL, если указана схема
+      try {
+        let url;
+        if (/^https?:\/\//i.test(addressInput)) {
+          url = new URL(addressInput);
+        } else {
+          // Если схемы нет, подставим http:// для парсинга
+          url = new URL(`http://${addressInput}`);
+        }
+        host = url.hostname;
+        port = url.port;
+      } catch (err) {
+        console.error(err);
+        resultDiv.innerHTML = '<span class="not-available">Некорректный адрес</span>';
         return;
       }
 
-      resultDiv.textContent = 'Проверка...';
+      if (!port) {
+        resultDiv.innerHTML = '<span class="not-available">Укажите порт в адресе</span>';
+        return;
+      }
+
+      // Показать спиннер и выключить кнопку
+      spinner.style.display = 'block';
+      button.disabled = true;
+      resultDiv.textContent = '';
 
       try {
-        const response = await fetch(`/check?host=${encodeURIComponent(parsed.host)}&port=${encodeURIComponent(parsed.port)}`);
-        if (!response.ok) {
-          const err = await response.json();
-          throw new Error(err.error || 'Ошибка запроса');
-        }
-        const data = await response.json();
+        const response = await axios.get('/check', {
+          params: { host, port }
+        });
+        const data = response.data;
 
-        // Логика вывода: если и ping, и порт доступны — Available, иначе Not available
-        const available = data.ping_success && data.port_success;
-        resultDiv.textContent = available ? 'Available' : 'Not available';
-        resultDiv.className = available ? 'available' : 'not-available';
-      } catch (err) {
-        resultDiv.textContent = 'Ошибка: ' + err.message;
-        resultDiv.className = 'not-available';
+        let msg = '';
+        if (data.ping_success && data.port_success) {
+          msg = '<span class="available">✅ Available</span>';
+        } else {
+          msg = '<span class="not-available">❌ Not available</span><br>';
+          if (!data.ping_success) {
+            msg += `🔹 Ping failed (${data.ping_summary})<br>`;
+          }
+          if (!data.port_success) {
+            msg += `🔹 Port failed (${data.port_error})`;
+          }
+        }
+
+        resultDiv.innerHTML = msg;
+      } catch (error) {
+        console.error(error);
+        resultDiv.innerHTML = '<span class="not-available">Ошибка при запросе</span>';
+      } finally {
+        spinner.style.display = 'none';
+        button.disabled = false;
       }
     });
   </script>
