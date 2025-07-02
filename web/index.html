@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NetCheckNova</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 400px; margin: auto; }
+    label, input, button { display: block; width: 100%; margin-bottom: 10px; font-size: 1.1em; }
+    button { padding: 10px; cursor: pointer; }
+    #result {
+      font-weight: bold;
+      font-size: 1.3em;
+      margin-top: 20px;
+    }
+    #result.available { color: green; }
+    #result.not-available { color: red; }
+  </style>
+</head>
+<body>
+  <h1>NetCheckNova</h1>
+  <form id="checkForm">
+    <label for="address">Введите адрес и порт (например, 8.8.8.8:53, google.com:443, https://google.com):</label>
+    <input type="text" id="address" name="address" placeholder="host[:port]" required />
+    <button type="submit">Check</button>
+  </form>
+
+  <div id="result"></div>
+
+  <script>
+    const form = document.getElementById('checkForm');
+    const resultDiv = document.getElementById('result');
+
+    // Функция парсинга адреса и порта
+    function parseAddress(input) {
+      try {
+        // Если input начинается с http или https, парсим как URL
+        if (/^https?:\/\//i.test(input)) {
+          const url = new URL(input);
+          const host = url.hostname;
+          const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+          return { host, port };
+        }
+        // Иначе разбиваем по ':'
+        const parts = input.split(':');
+        if (parts.length === 2) {
+          return { host: parts[0], port: parts[1] };
+        }
+        // Если порт не указан, вернём хост и пустой порт
+        return { host: input, port: '' };
+      } catch {
+        return null;
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      resultDiv.textContent = '';
+      resultDiv.className = '';
+
+      const input = form.address.value.trim();
+      const parsed = parseAddress(input);
+
+      if (!parsed || !parsed.host || !parsed.port) {
+        resultDiv.textContent = 'Некорректный адрес или порт';
+        resultDiv.className = 'not-available';
+        return;
+      }
+
+      resultDiv.textContent = 'Проверка...';
+
+      try {
+        const response = await fetch(`/check?host=${encodeURIComponent(parsed.host)}&port=${encodeURIComponent(parsed.port)}`);
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Ошибка запроса');
+        }
+        const data = await response.json();
+
+        // Логика вывода: если и ping, и порт доступны — Available, иначе Not available
+        const available = data.ping_success && data.port_success;
+        resultDiv.textContent = available ? 'Available' : 'Not available';
+        resultDiv.className = available ? 'available' : 'not-available';
+      } catch (err) {
+        resultDiv.textContent = 'Ошибка: ' + err.message;
+        resultDiv.className = 'not-available';
+      }
+    });
+  </script>
+</body>
+</html>

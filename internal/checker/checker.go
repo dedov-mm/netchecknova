@@ -10,12 +10,14 @@ import (
 
 // CheckResult содержит результат проверки хоста и порта.
 type CheckResult struct {
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	PingSuccess bool   `json:"ping_success"`
-	PingSummary string `json:"ping_summary"`
-	PortSuccess bool   `json:"port_success"`
-	PortError   string `json:"port_error"`
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	CreatedAt   time.Time `json:"created_at"`
+	Host        string    `json:"host"`
+	Port        int       `json:"port"`
+	PingSuccess bool      `json:"ping_success"`
+	PingSummary string    `json:"ping_summary"`
+	PortSuccess bool      `json:"port_success"`
+	PortError   string    `json:"port_error"`
 }
 
 // CheckOptions задаёт параметры проверки ICMP и TCP.

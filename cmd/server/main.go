@@ -1,44 +1,56 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"os"
+	"net/http"
+	"strconv"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/dedov-mm/netchecknova/internal/checker"
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Println("Usage: netchecknova <host> <port>")
-		os.Exit(1)
-	}
+	e := echo.New()
 
-	host := os.Args[1]
+	// Middleware для логирования и восстановления после паники
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
 
-	var port int
-	_, err := fmt.Sscanf(os.Args[2], "%d", &port)
-	if err != nil {
-		log.Fatalf("Invalid port: %v", err)
-	}
+	// Отдаем фронт
+	e.Static("/", "web")
 
-	// Используем параметры по умолчанию
-	opts := checker.DefaultCheckOptions()
+	// Эндпоинт /check?host=xxx&port=yyy
+	e.GET("/check", func(c echo.Context) error {
+		host := c.QueryParam("host")
+		portStr := c.QueryParam("port")
 
-	// Запускаем проверку
-	result, err := checker.CheckHostAndPort(host, port, opts)
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
+		if host == "" || portStr == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "host and port query parameters are required",
+			})
+		}
 
-	// Выводим результат
-	fmt.Println("=== NetCheck Result ===")
-	fmt.Printf("Host: %s\n", result.Host)
-	fmt.Printf("Port: %d\n", result.Port)
-	fmt.Printf("Ping success: %v\n", result.PingSuccess)
-	fmt.Printf("Ping summary: %s\n", result.PingSummary)
-	fmt.Printf("Port success: %v\n", result.PortSuccess)
-	if !result.PortSuccess {
-		fmt.Printf("Port error: %s\n", result.PortError)
-	}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "port must be a valid integer",
+			})
+		}
+
+		// Используем опции по умолчанию
+		opts := checker.DefaultCheckOptions()
+
+		result, err := checker.CheckHostAndPort(host, port, opts)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": err.Error(),
+			})
+		}
+
+		return c.JSON(http.StatusOK, result)
+	})
+
+	// Запускаем сервер на порту 8080
+	e.Logger.Fatal(e.Start(":8080"))
 }
