@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <title>NetCheckNova UI</title>
@@ -23,9 +23,31 @@
       max-width: 400px;
       width: 100%;
     }
+    input[type="text"] {
+      width: 80%;
+      padding: 0.5em;
+      font-size: 1em;
+      margin-bottom: 0.5em;
+    }
+    button {
+      padding: 0.5em 1em;
+      font-size: 1em;
+      margin-top: 1em;
+      cursor: pointer;
+    }
     .spinner {
       display: none;
-      margin: 1em 0;
+      margin: 1em auto;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
     .result {
       margin-top: 1em;
@@ -37,41 +59,40 @@
     .not-available {
       color: red;
     }
-    input[type="text"] {
-      width: 80%;
-      padding: 0.5em;
-      font-size: 1em;
+    label {
+      font-size: 0.9em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5em;
+      margin-bottom: 0.5em;
     }
-    button {
-      padding: 0.5em 1em;
-      font-size: 1em;
-      margin-top: 1em;
+    #proxy-address:disabled {
+      background-color: #eee;
     }
-
-    .spinner {
-      display: none;
-      margin: 1em auto;
-      border: 4px solid #f3f3f3; /* светлая часть */
-      border-top: 4px solid #3498db; /* синяя часть */
-      border-radius: 50%;
-      width: 40px;
-      height: 40px;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
   </style>
 </head>
 <body>
   <div class="container">
     <h1>NetCheckNova</h1>
     <form id="check-form">
-      <input type="text" id="address" placeholder="например: 8.8.8.8:53 или https://site:443" required />
-      <br>
+      <input
+        type="text"
+        id="address"
+        placeholder="например: 8.8.8.8:53 или https://site:443"
+        required
+      />
+      <label>
+        <input type="checkbox" id="use-proxy" />
+        Использовать прокси
+      </label>
+      <input
+        type="text"
+        id="proxy-address"
+        placeholder="Адрес прокси (например, 127.0.0.1:1080)"
+        disabled
+      />
+      <br />
       <button type="submit" id="check-button">Проверить</button>
     </form>
     <div class="spinner" id="spinner"></div>
@@ -83,62 +104,54 @@
     const spinner = document.getElementById('spinner');
     const resultDiv = document.getElementById('result');
     const button = document.getElementById('check-button');
+    const proxyCheckbox = document.getElementById('use-proxy');
+    const proxyInput = document.getElementById('proxy-address');
+
+    // Включение/отключение поля прокси по чекбоксу
+    proxyCheckbox.addEventListener('change', () => {
+      proxyInput.disabled = !proxyCheckbox.checked;
+      if (!proxyCheckbox.checked) {
+        proxyInput.value = '';
+      }
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const addressInput = document.getElementById('address').value.trim();
-      if (!addressInput) return;
 
-      let host = '';
-      let port = '';
+      const address = document.getElementById('address').value.trim();
+      const useProxy = proxyCheckbox.checked;
+      const proxyAddress = proxyInput.value.trim();
 
-      // Попробуем разобрать через URL, если указана схема
-      try {
-        let url;
-        if (/^https?:\/\//i.test(addressInput)) {
-          url = new URL(addressInput);
-        } else {
-          // Если схемы нет, подставим http:// для парсинга
-          url = new URL(`http://${addressInput}`);
-        }
-        host = url.hostname;
-        port = url.port;
-      } catch (err) {
-        console.error(err);
-        resultDiv.innerHTML = '<span class="not-available">Некорректный адрес</span>';
+      if (!address) return;
+      if (useProxy && !proxyAddress) {
+        alert('Укажите адрес прокси');
+        proxyInput.focus();
         return;
       }
 
-      if (!port) {
-        resultDiv.innerHTML = '<span class="not-available">Укажите порт в адресе</span>';
-        return;
-      }
-
-      // Показать спиннер и выключить кнопку
       spinner.style.display = 'block';
       button.disabled = true;
       resultDiv.textContent = '';
 
       try {
-        const response = await axios.get('/check', {
-          params: { host, port }
+        // POST запрос на /check с параметрами
+        const response = await axios.post('/check', {
+          address: address,
+          use_proxy: useProxy,
+          proxy: useProxy ? proxyAddress : '',
         });
+
         const data = response.data;
 
-        let msg = '';
-        if (data.ping_success && data.port_success) {
-          msg = '<span class="available">✅ Available</span>';
+        if (data.port_success) {
+          resultDiv.innerHTML = '<span class="available">✅ Available</span>';
         } else {
-          msg = '<span class="not-available">❌ Not available</span><br>';
-          if (!data.ping_success) {
-            msg += `🔹 Ping failed (${data.ping_summary})<br>`;
+          let msg = '<span class="not-available">❌ Not available</span><br>';
+          if (data.port_error) {
+            msg += `Ошибка: ${data.port_error}`;
           }
-          if (!data.port_success) {
-            msg += `🔹 Port failed (${data.port_error})`;
-          }
+          resultDiv.innerHTML = msg;
         }
-
-        resultDiv.innerHTML = msg;
       } catch (error) {
         console.error(error);
         resultDiv.innerHTML = '<span class="not-available">Ошибка при запросе</span>';

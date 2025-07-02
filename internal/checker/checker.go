@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	probing "github.com/prometheus-community/pro-bing"
+	"golang.org/x/net/proxy"
 )
 
 // CheckResult содержит результат проверки хоста и порта.
@@ -14,62 +14,48 @@ type CheckResult struct {
 	CreatedAt   time.Time `json:"created_at"`
 	Host        string    `json:"host"`
 	Port        int       `json:"port"`
-	PingSuccess bool      `json:"ping_success"`
-	PingSummary string    `json:"ping_summary"`
 	PortSuccess bool      `json:"port_success"`
 	PortError   string    `json:"port_error"`
 }
 
-// CheckOptions задаёт параметры проверки ICMP и TCP.
+// CheckOptions задаёт параметры проверки TCP.
 type CheckOptions struct {
-	PingCount   int           // сколько пакетов отправлять при пинге
-	PingTimeout time.Duration // таймаут пинга
-	PortTimeout time.Duration // таймаут проверки TCP-порта
+	PortTimeout  time.Duration // таймаут проверки TCP-порта
+	ProxyAddress string        // адрес SOCKS5 прокси, если нужно
 }
 
 // DefaultCheckOptions возвращает параметры по умолчанию.
 func DefaultCheckOptions() CheckOptions {
 	return CheckOptions{
-		PingCount:   3,
-		PingTimeout: 3 * time.Second,
 		PortTimeout: 3 * time.Second,
 	}
 }
 
-// CheckHostAndPort проверяет доступность хоста по ICMP (ping) и TCP (port).
+// CheckHostAndPort проверяет доступность TCP-порта напрямую или через прокси.
 //
 // host - адрес хоста
 // port - номер порта
-// opts - параметры проверки
+// opts - параметры проверки (таймаут и прокси)
 //
-// Возвращает структуру CheckResult и ошибку (если произошла системная ошибка).
+// Возвращает структуру CheckResult и ошибку.
 func CheckHostAndPort(host string, port int, opts CheckOptions) (*CheckResult, error) {
-	// Каналы для получения результата ping
-	pingResultChan := make(chan *probing.Statistics, 1)
-	pingErrorChan := make(chan error, 1)
+	var dialer proxy.Dialer
+	var err error
 
-	// Запускаем пинг в отдельной горутине
-	go func() {
-		pinger, err := probing.NewPinger(host)
+	if opts.ProxyAddress != "" {
+		// Создаём SOCKS5-диалер через прокси
+		dialer, err = proxy.SOCKS5("tcp", opts.ProxyAddress, nil, proxy.Direct)
 		if err != nil {
-			pingErrorChan <- err
-			return
+			return nil, fmt.Errorf("не удалось создать SOCKS5 диалер: %v", err)
 		}
-		pinger.Count = opts.PingCount
-		pinger.Timeout = opts.PingTimeout
-		pinger.SetPrivileged(false) // без прав root
-		err = pinger.Run()
-		if err != nil {
-			pingErrorChan <- err
-			return
+	} else {
+		// Прямое соединение
+		dialer = &net.Dialer{
+			Timeout: opts.PortTimeout,
 		}
-		stats := pinger.Statistics()
-		pingResultChan <- stats
-	}()
+	}
 
-	// Проверка TCP-порта
-	address := fmt.Sprintf("%s:%d", host, port)
-	conn, err := net.DialTimeout("tcp", address, opts.PortTimeout)
+	conn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%d", host, port))
 	portSuccess := false
 	var portErr string
 	if err == nil {
@@ -79,32 +65,9 @@ func CheckHostAndPort(host string, port int, opts CheckOptions) (*CheckResult, e
 		portErr = err.Error()
 	}
 
-	// Получение результата пинга
-	var pingSuccess bool
-	var pingSummary string
-	select {
-	case stats := <-pingResultChan:
-		pingSuccess = stats.PacketLoss < 100
-		pingSummary = fmt.Sprintf(
-			"Sent=%d Loss=%.2f%% AvgRTT=%v",
-			stats.PacketsSent,
-			stats.PacketLoss,
-			stats.AvgRtt,
-		)
-	case err := <-pingErrorChan:
-		pingSuccess = false
-		pingSummary = fmt.Sprintf("Ping error: %v", err)
-	case <-time.After(opts.PingTimeout + 2*time.Second):
-		pingSuccess = false
-		pingSummary = "Ping timeout"
-	}
-
-	// Сбор финального результата
 	result := &CheckResult{
 		Host:        host,
 		Port:        port,
-		PingSuccess: pingSuccess,
-		PingSummary: pingSummary,
 		PortSuccess: portSuccess,
 		PortError:   portErr,
 	}
