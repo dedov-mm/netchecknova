@@ -9,10 +9,16 @@
       font-family: Arial, sans-serif;
       background: #f9f9f9;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       height: 100vh;
       margin: 0;
+    }
+    h1 {
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+      text-align: center;
     }
     .container {
       text-align: center;
@@ -22,9 +28,18 @@
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
       max-width: 400px;
       width: 100%;
+      box-sizing: border-box;
+    }
+    label.address-label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 0.8em; /* увеличенный отступ */
+      text-align: center;   /* центрирование */
+      font-size: 1.2em;     /* увеличенный шрифт */
     }
     input[type="text"] {
-      width: 80%;
+      width: 100%;
+      box-sizing: border-box;
       padding: 0.5em;
       font-size: 1em;
       margin-bottom: 0.5em;
@@ -70,16 +85,29 @@
     #proxy-address:disabled {
       background-color: #eee;
     }
+    .footer {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      background: #f9f9f9;
+      text-align: center;
+      padding: 0.5em 0;
+      font-size: 0.9em;
+      color: #5786c5;
+      border-top: 1px solid #ddd;
+    }
   </style>
 </head>
 <body>
+  <h1>NetCheckNova</h1>
+
   <div class="container">
-    <h1>NetCheckNova</h1>
     <form id="check-form">
+      <label for="address" class="address-label">Введите ip-адрес и порт</label>
       <input
         type="text"
         id="address"
-        placeholder="например: 8.8.8.8:53 или https://site:443"
+        placeholder="ip:порт или https://домен:порт"
         required
       />
       <label>
@@ -99,6 +127,8 @@
     <div id="result" class="result"></div>
   </div>
 
+  <footer class="footer">mailto:</footer>
+
   <script>
     const form = document.getElementById('check-form');
     const spinner = document.getElementById('spinner');
@@ -107,7 +137,6 @@
     const proxyCheckbox = document.getElementById('use-proxy');
     const proxyInput = document.getElementById('proxy-address');
 
-    // Включение/отключение поля прокси по чекбоксу
     proxyCheckbox.addEventListener('change', () => {
       proxyInput.disabled = !proxyCheckbox.checked;
       if (!proxyCheckbox.checked) {
@@ -134,7 +163,6 @@
       resultDiv.textContent = '';
 
       try {
-        // POST запрос на /check с параметрами
         const response = await axios.post('/check', {
           address: address,
           use_proxy: useProxy,
