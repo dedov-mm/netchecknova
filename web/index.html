@@ -107,7 +107,7 @@
       <input
         type="text"
         id="address"
-        placeholder="ip:порт или https://домен:порт"
+        placeholder="например, ip:порт или https://домен:порт"
         required
       />
       <label>
@@ -172,9 +172,9 @@
         const data = response.data;
 
         if (data.port_success) {
-          resultDiv.innerHTML = '<span class="available">✅ Available</span>';
+          resultDiv.innerHTML = '<span class="available">✅ Доступен</span>';
         } else {
-          let msg = '<span class="not-available">❌ Not available</span><br>';
+          let msg = '<span class="not-available">❌ Недоступен</span><br>';
           if (data.port_error) {
             msg += `Ошибка: ${data.port_error}`;
           }
