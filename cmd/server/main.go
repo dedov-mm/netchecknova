@@ -65,7 +65,7 @@ func handleCheck(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, result)
+	return c.JSON(http.StatusOK, map[string]interface{}{"results": []checker.CheckResult{*result}})
 }
 
 // addressHasScheme проверяет, содержит ли адрес схему http:// или https://.

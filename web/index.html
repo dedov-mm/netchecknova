@@ -184,17 +184,44 @@
 
         const data = response.data;
 
+
+        console.log('Ответ от сервера:', data);
+
         // Показываем статус
-        if (data.port_success) {
-          let resolved = data.resolved_address ? ` (${data.resolved_address})` : '';
-          resultDiv.innerHTML = `<span class="available">✅ ${data.message}</span>`;
-        } else {
-          let msg = `<span class="not-available">❌ Недоступен</span>`;
-          if (data.port_error) {
-            msg += `<br>Ошибка: ${data.port_error}`;
+      if (Array.isArray(data.results)) {
+        let htmlResult = '';
+        let htmlMessages = '';
+
+        data.results.forEach((res, idx) => {
+          const resolved = res.resolved_address ? ` (${res.resolved_address})` : '';
+          const portInfo = res.port ? `:${res.port}` : '';
+          const title = `<strong>${res.host}${portInfo}${resolved}</strong>: `;
+
+          if (res.port_success) {
+              htmlResult += `<span class="available">${res.message || 'Доступен'}: ${address}</span><br>`;
+            } else {
+              htmlResult += `<span class="not-available">❌ Недоступен: ${address}</span>`;
+              if (res.port_error) {
+                htmlResult += `<br>Ошибка: ${res.port_error}`;
+              }
+              htmlResult += '<br>';
+            }
+
+
+          if (res.messages && Array.isArray(res.messages) && res.messages.length > 0) {
+            htmlMessages += `<div><strong>${res.address}:</strong><ul>`;
+            res.messages.forEach((m) => {
+              htmlMessages += `<li>${m}</li>`;
+            });
+            htmlMessages += '</ul></div>';
           }
-          resultDiv.innerHTML = msg;
-        }
+        });
+
+        resultDiv.innerHTML = htmlResult;
+        messagesDiv.innerHTML = htmlMessages || '';
+      } else {
+        resultDiv.innerHTML = '<span class="not-available">❌ Неверный формат ответа</span>';
+      }
 
         // Сообщения
         if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {

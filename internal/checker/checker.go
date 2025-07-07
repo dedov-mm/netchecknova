@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -94,26 +95,37 @@ func CheckHostAndPort(address string, host string, port int, opts CheckOptions) 
 		result.HTTPStatus = status
 		result.HTTPError = httpErr
 
+		// TLS-сертификат не распознан, но соединение возможно
+		if !ok && isTLSError(httpErr) {
+			result.PortSuccess = true
+			result.Message = "⚠️ Доступен, но TLS-сертификат не распознан"
+			return result, nil
+		}
+
 		if ok {
 			result.PortSuccess = true
-			result.Message = fmt.Sprintf("Доступен: %s (HTTP %d через прокси %s)", address, status, opts.ProxyAddress)
+			result.Message = buildHTTPStatusMessage(status)
 		} else {
 			result.PortSuccess = false
+			result.Message = "❌ Недоступен: " + httpErr
 			result.PortError = fmt.Sprintf("Ошибка HTTP-запроса через прокси %s: %s", opts.ProxyAddress, httpErr)
 		}
 		return result, nil
 	}
 
+	// TCP проверка
 	ok, err := checkTCP(host, port, opts.PortTimeout)
 	if ok {
 		result.PortSuccess = true
-		result.Message = fmt.Sprintf("Доступен: %s:%d", host, port)
+		result.Message = "✅ Доступен"
 	} else {
 		result.PortSuccess = false
 		if err != nil {
 			result.PortError = err.Error()
+			result.Message = "❌ Недоступен: " + err.Error()
 		} else {
 			result.PortError = "неизвестная ошибка TCP"
+			result.Message = "❌ Недоступен: неизвестная ошибка TCP"
 		}
 	}
 
@@ -123,4 +135,23 @@ func CheckHostAndPort(address string, host string, port int, opts CheckOptions) 
 // hasScheme проверяет, содержит ли строка схему "http://" или "https://".
 func hasScheme(s string) bool {
 	return len(s) >= 7 && (s[:7] == "http://" || (len(s) >= 8 && s[:8] == "https://"))
+}
+
+func buildHTTPStatusMessage(status int) string {
+	switch {
+	case status >= 200 && status < 300:
+		return "✅ Доступен"
+	case status >= 300 && status < 400:
+		return "⚠️ Доступен с перенаправлением"
+	case status >= 400 && status < 500:
+		return "⚠️ Доступен, но отказано в доступе"
+	case status >= 500:
+		return "⚠️ Доступен, но серверная ошибка"
+	default:
+		return fmt.Sprintf("⚠️ Доступен, но неизвестный статус HTTP %d", status)
+	}
+}
+
+func isTLSError(errMsg string) bool {
+	return strings.Contains(errMsg, "x509:") || strings.Contains(errMsg, "tls:")
 }
