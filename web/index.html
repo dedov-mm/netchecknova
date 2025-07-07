@@ -33,9 +33,9 @@
     label.address-label {
       display: block;
       font-weight: bold;
-      margin-bottom: 0.8em; /* увеличенный отступ */
-      text-align: center;   /* центрирование */
-      font-size: 1.2em;     /* увеличенный шрифт */
+      margin-bottom: 0.8em;
+      text-align: center;
+      font-size: 1.2em;
     }
     input[type="text"] {
       width: 100%;
@@ -85,6 +85,19 @@
     #proxy-address:disabled {
       background-color: #eee;
     }
+    .messages {
+      margin-top: 1em;
+      text-align: left;
+      font-size: 0.9em;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .messages ul {
+      padding-left: 1.2em;
+    }
+    .messages li {
+      margin-bottom: 0.3em;
+    }
     .footer {
       position: fixed;
       bottom: 0;
@@ -100,7 +113,6 @@
 </head>
 <body>
   <h1>NetCheckNova</h1>
-
   <div class="container">
     <form id="check-form">
       <label for="address" class="address-label">Введите ip-адрес и порт</label>
@@ -112,7 +124,7 @@
       />
       <label>
         <input type="checkbox" id="use-proxy" />
-        Использовать прокси
+        Использовать HTTP proxy
       </label>
       <input
         type="text"
@@ -125,14 +137,14 @@
     </form>
     <div class="spinner" id="spinner"></div>
     <div id="result" class="result"></div>
+    <div id="messages" class="messages"></div>
   </div>
-
   <footer class="footer">mailto:</footer>
-
   <script>
     const form = document.getElementById('check-form');
     const spinner = document.getElementById('spinner');
     const resultDiv = document.getElementById('result');
+    const messagesDiv = document.getElementById('messages');
     const button = document.getElementById('check-button');
     const proxyCheckbox = document.getElementById('use-proxy');
     const proxyInput = document.getElementById('proxy-address');
@@ -161,6 +173,7 @@
       spinner.style.display = 'block';
       button.disabled = true;
       resultDiv.textContent = '';
+      messagesDiv.textContent = '';
 
       try {
         const response = await axios.post('/check', {
@@ -171,18 +184,36 @@
 
         const data = response.data;
 
+        // Показываем статус
         if (data.port_success) {
-          resultDiv.innerHTML = '<span class="available">✅ Доступен</span>';
+          let resolved = data.resolved_address ? ` (${data.resolved_address})` : '';
+          resultDiv.innerHTML = `<span class="available">✅ ${data.message}</span>`;
         } else {
-          let msg = '<span class="not-available">❌ Недоступен</span><br>';
+          let msg = `<span class="not-available">❌ Недоступен</span>`;
           if (data.port_error) {
-            msg += `Ошибка: ${data.port_error}`;
+            msg += `<br>Ошибка: ${data.port_error}`;
           }
           resultDiv.innerHTML = msg;
         }
+
+        // Сообщения
+        if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+          const ul = document.createElement('ul');
+          data.messages.forEach((message) => {
+            const li = document.createElement('li');
+            li.textContent = message;
+            ul.appendChild(li);
+          });
+          messagesDiv.innerHTML = '<strong>Сообщения:</strong>';
+          messagesDiv.appendChild(ul);
+        } else {
+          messagesDiv.textContent = '';
+        }
+
       } catch (error) {
         console.error(error);
         resultDiv.innerHTML = '<span class="not-available">Ошибка при запросе</span>';
+        messagesDiv.textContent = '';
       } finally {
         spinner.style.display = 'none';
         button.disabled = false;

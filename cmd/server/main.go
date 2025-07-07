@@ -2,44 +2,34 @@ package main
 
 import (
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/dedov-mm/netchecknova/internal/checker"
-	"net/url"
-	"net"
 )
 
-// CheckRequest представляет тело запроса на проверку доступности хоста и порта.
-// Если UseProxy == true, то для подключения используется SOCKS5 прокси по адресу Proxy.
+// CheckRequest представляет тело запроса для проверки доступности хоста и порта.
 type CheckRequest struct {
-	Address  string `json:"address"`   // Адрес для проверки, включая порт, например "8.8.8.8:53" или "https://google.com:443"
-	UseProxy bool   `json:"use_proxy"` // Флаг использования прокси
-	Proxy    string `json:"proxy"`     // Адрес SOCKS5 прокси, например "127.0.0.1:1080"
+	Address  string `json:"address"`   // Адрес для проверки (может быть ip:port или URL с http/https)
+	UseProxy bool   `json:"use_proxy"` // Использовать ли HTTP proxy для проверки
+	Proxy    string `json:"proxy"`     // Адрес HTTP proxy, например "proxy.example.com:3128"
 }
 
 func main() {
 	e := echo.New()
-
-	// Middleware для логирования запросов и обработки паник
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-
-	// Раздача статических файлов фронтенда из папки "web"
-	e.Static("/", "web")
-
-	// POST /check — обработчик проверки доступности хоста и порта
+	e.Static("/", "web") 
 	e.POST("/check", handleCheck)
-
-	// Запуск HTTP-сервера на порту 8080
 	e.Logger.Fatal(e.Start(":8080"))
 }
 
-// handleCheck обрабатывает POST-запрос на /check.
-// Ожидает JSON тело с адресом, флагом use_proxy и опциональным прокси-адресом.
-// Возвращает JSON с результатом проверки.
+// handleCheck обрабатывает HTTP POST запрос на проверку доступности хоста и порта.
+// Принимает JSON с параметрами CheckRequest.
+// Если в адресе отсутствует схема (http:// или https://), добавляет "http://" для проверки через HTTP proxy.
+// При включённом прокси проверяет через него, иначе — обычное TCP соединение.
+// Возвращает JSON с результатом проверки или ошибкой.
 func handleCheck(c echo.Context) error {
 	req := new(CheckRequest)
 
@@ -47,24 +37,30 @@ func handleCheck(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
-	// Парсим адрес и порт из строки Address
-	host, port, err := parseAddressWithPort(req.Address)
+	address := strings.TrimSpace(req.Address)
+	if address == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "address required"})
+	}
+
+	if !addressHasScheme(address) {
+		address = "http://" + address
+	}
+
+	host, port, err := parseAddressWithPort(address)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid address: " + err.Error()})
 	}
 
 	opts := checker.DefaultCheckOptions()
-
-	// Если включён прокси, проверяем наличие адреса и передаём в опции
 	if req.UseProxy {
-		if strings.TrimSpace(req.Proxy) == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "proxy address is required when use_proxy is true"})
+		proxyAddr := strings.TrimSpace(req.Proxy)
+		if proxyAddr == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "proxy address is required"})
 		}
-		opts.ProxyAddress = req.Proxy
+		opts.ProxyAddress = proxyAddr
 	}
 
-	// Выполняем проверку
-	result, err := checker.CheckHostAndPort(host, port, opts)
+	result, err := checker.CheckHostAndPort(address, host, port, opts)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -72,47 +68,37 @@ func handleCheck(c echo.Context) error {
 	return c.JSON(http.StatusOK, result)
 }
 
-// parseAddressWithPort разбирает строку адреса с портом,
-// поддерживает форматы с http:// или https:// и обычные "host:port".
-// Возвращает хост и порт как отдельные значения.
-func parseAddressWithPort(input string) (string, int, error) {
-    input = strings.TrimSpace(input)
+// addressHasScheme проверяет, содержит ли адрес схему http:// или https://.
+func addressHasScheme(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
 
-    if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
-        u, err := url.Parse(input)
-        if err != nil {
-            return "", 0, err
-        }
-        host := u.Hostname()
-        portStr := u.Port()
+// parseAddressWithPort разбирает адрес с URL-схемой и возвращает хост и порт.
+// Если порт не указан, возвращает стандартный порт для схемы http (80) или https (443).
+// Возвращает ошибку, если адрес невалидный или порт не числовой.
+func parseAddressWithPort(address string) (host string, port int, err error) {
+	u, err := url.Parse(address)
+	if err != nil {
+		return "", 0, err
+	}
 
-        if portStr == "" {
-            // Автоматически подставляем порт в зависимости от схемы
-            switch u.Scheme {
-            case "https":
-                return host, 443, nil
-            case "http":
-                return host, 80, nil
-            default:
-                return "", 0, echo.NewHTTPError(http.StatusBadRequest, "unsupported scheme")
-            }
-        }
+	host = u.Hostname()
+	pStr := u.Port()
+	if pStr == "" {
+		switch u.Scheme {
+		case "http":
+			port = 80
+		case "https":
+			port = 443
+		default:
+			port = 0
+		}
+	} else {
+		port, err = strconv.Atoi(pStr)
+		if err != nil {
+			return "", 0, err
+		}
+	}
 
-        port, err := net.LookupPort("tcp", portStr)
-        if err != nil {
-            return "", 0, err
-        }
-        return host, port, nil
-    }
-
-    // Формат host:port без схемы
-    host, portStr, err := net.SplitHostPort(input)
-    if err != nil {
-        return "", 0, err
-    }
-    port, err := net.LookupPort("tcp", portStr)
-    if err != nil {
-        return "", 0, err
-    }
-    return host, port, nil
+	return host, port, nil
 }

@@ -10,11 +10,10 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	golang.org/x/crypto v0.23.0 // indirect
 	golang.org/x/text v0.15.0 // indirect
-	golang.org/x/time v0.11.0 // indirect
 )
 
 require (
-	github.com/labstack/echo/v4 v4.13.1
+	github.com/labstack/echo/v4 v4.1.17
 	golang.org/x/net v0.25.0
 	golang.org/x/sys v0.33.0 // indirect
 )
