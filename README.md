@@ -3,4 +3,4 @@ netchecknova
 
 4 github actions
 
-test LFS
+test LFS2
