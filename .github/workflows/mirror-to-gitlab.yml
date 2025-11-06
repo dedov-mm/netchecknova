@@ -15,7 +15,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git-lfs ca-certificates
-          git lfs install --system || true
+          git lfs install
 
       - name: clone from GitHub
         env:
