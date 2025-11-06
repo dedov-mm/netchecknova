@@ -1,12 +1,9 @@
-name: Mirror to GitLab
+name: mirror to GitLab
 
-# Запускаем на любые пуши и на события pull_request (создание/обновление PR)
 on:
   push:
     branches:
       - '**'
-  pull_request:
-    types: [opened, synchronize, reopened]
 
 jobs:
   mirror:
@@ -14,71 +11,42 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Prepare git & lfs
+      - name: install git-lfs
         run: |
-          # Установим расширения (git уже предустановлен)
           sudo apt-get update
           sudo apt-get install -y git-lfs ca-certificates
           git lfs install --system || true
 
-      - name: Mirror clone from GitHub (bare)
-        env:
-          GH_REPO: ${{ github.repository }}                      # dedov-mm/netchecknova
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}                  # встроенный токен или персональный, если приватное repo
-        run: |
-          set -e
-          rm -rf repo.git
-          # Клонируем mirror (bare) — получаем ВСЕ refs на GitHub (branches, tags, etc)
-          git clone --mirror https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git repo.git
-          ls -la repo.git
-
-      - name: (optional) Fetch Pull Request refs
-        if: ${{ github.event_name == 'pull_request' }}
+      - name: clone from GitHub
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Если нужно дополнительно подтянуть refs/pull/* (в GitHub бывают дополнительные refs)
-          # переходим в bare и явно запрашиваем refs/pull/*
-          cd repo.git
-          # fetch все refs/pull/*/head в refs/pull/*
-          git fetch --no-tags https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git '+refs/pull/*/head:refs/pull/*' || true
-          cd ..
+          set -e
+          rm -rf repo.git
+          git clone --mirror https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git repo.git
+          ls -la repo.git
 
-      - name: Push mirror to GitLab
+      - name: push LFS
         env:
-          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}              # должен быть добавлен в Secrets
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
         run: |
           set -e
           cd repo.git
+          git lfs fetch --all || true
+          git lfs ls-files || true
+          git lfs push --all "https://oauth2:${GITLAB_TOKEN}@gitlab.com/start4553016/test-sync.git" || true
 
-          # Целевой url (GitLab repo). Используем oauth2:token@host для аутентификации по PAT
+      - name: push mirror to GitLab
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          set -e
+          cd repo.git
           GITLAB_URL="https://oauth2:${GITLAB_TOKEN}@gitlab.com/start4553016/test-sync.git"
-
-          # Опция: если целевой репозиторий приватный или защищенные ветки — будь осторожен с --mirror (force)
-          # Выполняем push с retry, т.к. сеть/временные ошибки возможны.
           for i in 1 2 3; do
             git push --mirror "${GITLAB_URL}" && break || {
               echo "Push failed, attempt $i"
               sleep $((i * 5))
             }
           done
-
-      - name: (optional) Push LFS objects to GitLab (if repo uses LFS)
-        if: ${{ always() }}
-        env:
-          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
-        run: |
-          set -e
-          cd repo.git || exit 0
-          # Если репозиторий содержит LFS, отправим объекты вручную.
-          # Предполагаем, что git-lfs установлен (см. подготовку).
-          # Конвертация bare -> worktree необходима для простоты: создаём временную рабочую копию.
-          TMPDIR=$(mktemp -d)
-          GIT_WORK_TREE="${TMPDIR}" git checkout -f || true
-          git lfs fetch --all || true
-          git lfs push --all "https://oauth2:${GITLAB_TOKEN}@gitlab.com/start4553016/test-sync.git" || true
-          rm -rf "${TMPDIR}"
-
-      - name: Done
-        run: echo "Mirror job finished"
