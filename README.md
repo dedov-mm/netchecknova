@@ -1,4 +1,4 @@
 # netchecknova
 netchecknova
 
-test schedule
+for gitlab sync
